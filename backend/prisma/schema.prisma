@@ -1,0 +1,633 @@
+// FILE: /AutoStudio/backend/prisma/schema.prisma
+// DESCRIPTION: Complete database schema for AutoStudio.AI v6.9
+// Supports: Users, Credits, Projects, Videos, Analytics, Payments, Blockchain
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTICATION & USER MANAGEMENT
+// ============================================
+
+enum UserRole {
+  USER
+  PRO
+  ENTERPRISE
+  PARTNER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum SubscriptionPlan {
+  FREE
+  STARTER
+  PRO
+  ENTERPRISE
+  PARTNER_PLUS
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  EXPIRED
+  PAST_DUE
+  TRIALING
+}
+
+model User {
+  id                String              @id @default(uuid())
+  email             String              @unique
+  emailVerified     DateTime?
+  password          String?             // Nullable for OAuth users
+  name              String?
+  avatar            String?
+  role              UserRole            @default(USER)
+  
+  // OAuth
+  googleId          String?             @unique
+  facebookId        String?             @unique
+  
+  // Subscription
+  plan              SubscriptionPlan    @default(FREE)
+  subscriptionStatus SubscriptionStatus @default(ACTIVE)
+  subscriptionId    String?             @unique
+  subscriptionEndsAt DateTime?
+  
+  // Credits
+  credits           Int                 @default(10) // FREE plan starts with 10
+  totalCreditsUsed  Int                 @default(0)
+  totalCreditsPurchased Int             @default(0)
+  
+  // Limits based on plan
+  videosThisMonth   Int                 @default(0)
+  videosLimit       Int                 @default(1) // FREE: 1, STARTER: 20, PRO: 100
+  lastVideoReset    DateTime            @default(now())
+  
+  // Settings
+  preferences       Json?               // User preferences as JSON
+  apiKey            String?             @unique // For Enterprise API access
+  apiKeyCreatedAt   DateTime?
+  
+  // Gamification
+  totalVideosCreated Int                @default(0)
+  totalViews        BigInt              @default(0)
+  totalRevenue      Decimal             @default(0) @db.Decimal(15, 2)
+  badges            Badge[]
+  leaderboardRank   Int?
+  
+  // Security
+  twoFactorEnabled  Boolean             @default(false)
+  twoFactorSecret   String?
+  lastLoginAt       DateTime?
+  lastLoginIp       String?
+  
+  // Relationships
+  projects          Project[]
+  videos            Video[]
+  creditTransactions CreditTransaction[]
+  payments          Payment[]
+  analytics         Analytics[]
+  assets            Asset[]
+  collaborations    Collaboration[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  deletedAt         DateTime?           // Soft delete
+  
+  @@index([email])
+  @@index([role])
+  @@index([plan])
+  @@map("users")
+}
+
+model Badge {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type        String   // "AI_PROMPT_MASTER", "MONETIZATION_GURU", "CREATIVE_PARTNER"
+  name        String
+  description String?
+  iconUrl     String?
+  earnedAt    DateTime @default(now())
+  
+  @@index([userId])
+  @@map("badges")
+}
+
+// ============================================
+// CREDIT SYSTEM
+// ============================================
+
+enum CreditTransactionType {
+  PURCHASE
+  DEDUCTION
+  REFUND
+  BONUS
+  REFERRAL_REWARD
+  LEADERBOARD_REWARD
+}
+
+model CreditTransaction {
+  id              String                 @id @default(uuid())
+  userId          String
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type            CreditTransactionType
+  amount          Int                    // Positive for credits added, negative for credits used
+  balanceBefore   Int
+  balanceAfter    Int
+  
+  // Context
+  reason          String                 // "Video generation", "Monthly subscription", etc.
+  relatedVideoId  String?
+  relatedPaymentId String?
+  metadata        Json?                  // Additional data
+  
+  createdAt       DateTime               @default(now())
+  
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("credit_transactions")
+}
+
+// ============================================
+// PROJECTS & VIDEOS
+// ============================================
+
+enum ProjectStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  ARCHIVED
+}
+
+enum VideoStatus {
+  QUEUED
+  PROCESSING
+  RENDERING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum VideoOrientation {
+  LANDSCAPE    // 16:9 YouTube
+  PORTRAIT     // 9:16 TikTok/Reels
+  SQUARE       // 1:1 Instagram Feed
+}
+
+model Project {
+  id            String         @id @default(uuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name          String
+  description   String?
+  status        ProjectStatus  @default(DRAFT)
+  
+  // Project Settings
+  orientation   VideoOrientation @default(LANDSCAPE)
+  targetPlatform String[]       // ["youtube", "tiktok", "instagram"]
+  template      String?         // Template ID
+  
+  // Collaboration
+  isCollaborative Boolean       @default(false)
+  collaborators Collaboration[]
+  
+  // Assets
+  videos        Video[]
+  assets        Asset[]
+  
+  // Analytics
+  totalViews    BigInt          @default(0)
+  totalRevenue  Decimal         @default(0) @db.Decimal(15, 2)
+  
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  deletedAt     DateTime?
+  
+  @@index([userId])
+  @@index([status])
+  @@map("projects")
+}
+
+model Video {
+  id                String        @id @default(uuid())
+  projectId         String
+  project           Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  title             String
+  description       String?
+  status            VideoStatus   @default(QUEUED)
+  
+  // Video Metadata
+  duration          Int?          // in seconds
+  resolution        String?       // "720p", "1080p", "4K"
+  orientation       VideoOrientation
+  fileSize          BigInt?       // in bytes
+  
+  // Storage
+  videoUrl          String?       // Cloudflare R2 URL
+  thumbnailUrl      String?
+  previewUrl        String?       // Low-res preview
+  
+  // Generation Info
+  prompt            String        @db.Text // Original prompt
+  enhancedPrompt    String?       @db.Text // PIE-enhanced prompt
+  scenes            Json          // Array of scene objects
+  
+  // AI Providers Used
+  videoProvider     String?       // "runway", "stability", "veo3"
+  audioProvider     String?       // "elevenlabs", "openai-tts"
+  musicProvider     String?       // "suno", "library"
+  scriptProvider    String?       // "gpt4", "claude", "gemini"
+  
+  // Credits
+  creditsUsed       Int           @default(0)
+  estimatedCredits  Int?          // PIE prediction
+  
+  // Processing
+  jobId             String?       @unique
+  startedAt         DateTime?
+  completedAt       DateTime?
+  failedAt          DateTime?
+  errorMessage      String?       @db.Text
+  progress          Int           @default(0) // 0-100
+  
+  // Watermark
+  hasWatermark      Boolean       @default(true)
+  
+  // Analytics
+  views             BigInt        @default(0)
+  likes             Int           @default(0)
+  shares            Int           @default(0)
+  estimatedRevenue  Decimal?      @db.Decimal(10, 2)
+  analytics         Analytics[]
+  
+  // Blockchain
+  blockchainHash    String?       @unique
+  blockchainTxHash  String?
+  blockchainUrl     String?       // Public proof URL
+  fingerprint       CreativeFingerprint?
+  
+  // Moderation
+  policyCheckPassed Boolean       @default(false)
+  policyCheckDetails Json?
+  flagged           Boolean       @default(false)
+  flagReason        String?
+  
+  // Versions (for A/B testing)
+  parentVideoId     String?
+  version           String        @default("v1")
+  
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([projectId])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("videos")
+}
+
+model CreativeFingerprint {
+  id                String   @id @default(uuid())
+  videoId           String   @unique
+  video             Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  
+  // Hashes
+  videoHash         String   @unique
+  promptHash        String
+  metadataHash      String
+  
+  // Blockchain
+  blockchainNetwork String   @default("polygon")
+  txHash            String   @unique
+  blockNumber       BigInt?
+  contractAddress   String?
+  tokenId           String?
+  
+  // Proof
+  publicProofUrl    String   // Public verification URL
+  
+  createdAt         DateTime @default(now())
+  
+  @@index([videoHash])
+  @@map("creative_fingerprints")
+}
+
+// ============================================
+// ANALYTICS & MONETIZATION
+// ============================================
+
+model Analytics {
+  id                String   @id @default(uuid())
+  videoId           String
+  video             Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date              DateTime @default(now())
+  
+  // Metrics
+  views             Int      @default(0)
+  watchTime         Int      @default(0) // in seconds
+  averageViewDuration Int    @default(0)
+  likes             Int      @default(0)
+  dislikes          Int      @default(0)
+  comments          Int      @default(0)
+  shares            Int      @default(0)
+  
+  // Engagement
+  ctr               Decimal  @default(0) @db.Decimal(5, 2) // Click-through rate
+  retentionRate     Decimal  @default(0) @db.Decimal(5, 2)
+  engagementRate    Decimal  @default(0) @db.Decimal(5, 2)
+  
+  // Monetization
+  revenue           Decimal  @default(0) @db.Decimal(10, 2)
+  rpm               Decimal  @default(0) @db.Decimal(10, 2) // Revenue per mille
+  cpm               Decimal  @default(0) @db.Decimal(10, 2) // Cost per mille
+  epic              Decimal  @default(0) @db.Decimal(10, 4) // Earnings per click
+  
+  // Traffic Sources
+  trafficSources    Json?    // {"youtube": 70, "direct": 20, "social": 10}
+  
+  // Demographics
+  topCountries      Json?    // ["US", "UK", "VN"]
+  ageGroups         Json?    // {"18-24": 40, "25-34": 35}
+  
+  @@index([videoId])
+  @@index([userId])
+  @@index([date])
+  @@map("analytics")
+}
+
+// ============================================
+// PAYMENTS
+// ============================================
+
+enum PaymentMethod {
+  STRIPE
+  MOMO
+  ZALOPAY
+  VNPAY
+  BANK_TRANSFER
+  BTC
+  USDT
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+model Payment {
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  
+  // Amount
+  amount          Decimal       @db.Decimal(15, 2)
+  currency        String        @default("USD") // "USD", "VND", "BTC"
+  
+  // Credits
+  creditsAmount   Int           // Credits purchased
+  
+  // External IDs
+  externalId      String?       @unique // Stripe payment_intent_id, MoMo transaction_id, etc.
+  invoiceId       String?       @unique
+  invoiceUrl      String?
+  
+  // Subscription
+  isSubscription  Boolean       @default(false)
+  subscriptionPlan SubscriptionPlan?
+  subscriptionPeriodStart DateTime?
+  subscriptionPeriodEnd   DateTime?
+  
+  // Metadata
+  metadata        Json?
+  
+  // Webhooks
+  webhookReceived Boolean       @default(false)
+  webhookData     Json?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+// ============================================
+// ASSETS & STORAGE
+// ============================================
+
+enum AssetType {
+  IMAGE
+  VIDEO
+  AUDIO
+  FONT
+  LOGO
+  BROLL
+  MUSIC
+  TEMPLATE
+}
+
+model Asset {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  
+  name        String
+  type        AssetType
+  fileSize    BigInt    // in bytes
+  mimeType    String
+  
+  // Storage
+  url         String    // Cloudflare R2 URL
+  thumbnailUrl String?
+  
+  // AI Tagging
+  tags        String[]  // Auto-generated tags
+  aiGenerated Boolean   @default(false)
+  
+  // Metadata
+  duration    Int?      // for video/audio
+  width       Int?      // for images/video
+  height      Int?
+  metadata    Json?
+  
+  // License (for music)
+  licenseType String?   // "royalty-free", "copyright", "creative-commons"
+  licenseUrl  String?
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  
+  @@index([userId])
+  @@index([projectId])
+  @@index([type])
+  @@map("assets")
+}
+
+// ============================================
+// COLLABORATION
+// ============================================
+
+enum CollaborationRole {
+  VIEWER
+  EDITOR
+  ADMIN
+  OWNER
+}
+
+model Collaboration {
+  id          String            @id @default(uuid())
+  projectId   String
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  role        CollaborationRole
+  
+  // Permissions (granular)
+  canEdit     Boolean           @default(false)
+  canDelete   Boolean           @default(false)
+  canInvite   Boolean           @default(false)
+  canExport   Boolean           @default(true)
+  
+  invitedBy   String?
+  invitedAt   DateTime          @default(now())
+  acceptedAt  DateTime?
+  
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("collaborations")
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+enum NotificationType {
+  VIDEO_COMPLETED
+  VIDEO_FAILED
+  CREDIT_LOW
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  SUBSCRIPTION_EXPIRING
+  NEW_COLLABORATION
+  LEADERBOARD_REWARD
+  BADGE_EARNED
+  SYSTEM_ANNOUNCEMENT
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type        NotificationType
+  title       String
+  message     String           @db.Text
+  
+  // Context
+  relatedVideoId String?
+  relatedProjectId String?
+  actionUrl   String?
+  
+  read        Boolean          @default(false)
+  readAt      DateTime?
+  
+  createdAt   DateTime         @default(now())
+  
+  @@index([userId])
+  @@index([read])
+  @@map("notifications")
+}
+
+// ============================================
+// AUDIT LOGS (for admins & compliance)
+// ============================================
+
+enum AuditAction {
+  USER_LOGIN
+  USER_LOGOUT
+  USER_REGISTER
+  VIDEO_CREATED
+  VIDEO_DELETED
+  CREDIT_PURCHASED
+  CREDIT_DEDUCTED
+  PAYMENT_MADE
+  SUBSCRIPTION_CHANGED
+  PROJECT_SHARED
+  ASSET_UPLOADED
+  ADMIN_ACTION
+  POLICY_VIOLATION
+  BLOCKCHAIN_RECORD
+}
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  action      AuditAction
+  resource    String      // "video", "user", "payment", etc.
+  resourceId  String?
+  
+  // Details
+  description String      @db.Text
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+  
+  createdAt   DateTime    @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================
+// SYSTEM SETTINGS (for admins)
+// ============================================
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?
+  
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+  
+  @@map("system_settings")
+}
