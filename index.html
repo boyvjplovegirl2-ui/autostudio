@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>STUDIO AUTO</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'primary': '#6366F1',
+              'primary-dark': '#4F46E5',
+              'secondary': '#10B981',
+              'dark-bg': '#111827',
+              'dark-card': '#1F2937',
+              'dark-border': '#374151',
+              'light-bg': '#F9FAFB',
+              'light-card': '#FFFFFF',
+              'light-border': '#E5E7EB',
+            },
+          }
+        }
+      }
+    </script>
+    <style>
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .page-fade-in {
+        animation: fadeIn 0.4s ease-out forwards;
+      }
+      
+      /* For modal transitions */
+      @keyframes fade-in-up {
+          from {
+              opacity: 0;
+              transform: translateY(20px) scale(0.95);
+          }
+          to {
+              opacity: 1;
+              transform: translateY(0) scale(1);
+          }
+      }
+      .animate-fade-in-up {
+          animation: fade-in-up 0.3s ease-out forwards;
+      }
+
+      /* Request 6: Tab Button Styling */
+      .tab-button-container > button {
+        font-size: 1.05rem; /* Larger font size */
+        padding-top: 0.85rem;
+        padding-bottom: 0.85rem;
+      }
+      .tab-button-container > button:not(.active-tab) {
+        transition: background-color 0.2s ease-in-out;
+      }
+      .tab-button-container > button:not(.active-tab):hover {
+        background-color: rgba(99, 102, 241, 0.05);
+      }
+      html.dark .tab-button-container > button:not(.active-tab):hover {
+        background-color: rgba(99, 102, 241, 0.1);
+      }
+      .tab-button-container > button.active-tab {
+        border-bottom-width: 3px;
+        border-color: #6366F1; /* vibrant primary */
+        color: #6366F1;
+      }
+
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/react-datepicker/6.9.0/react-datepicker.min.css" />
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.29.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "chart.js": "https://aistudiocdn.com/chart.js@^4.4.3",
+    "react-chartjs-2": "https://aistudiocdn.com/react-chartjs-2@^5.2.0",
+    "react-datepicker": "https://aistudiocdn.com/react-datepicker@^6.9.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-light-bg dark:bg-dark-bg">
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

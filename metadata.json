@@ -1,0 +1,5 @@
+{
+  "name": "STUDIO AUTO",
+  "description": "An AI-powered platform to automatically generate stories, prompts, images, and videos, combining features of Runway, Pika Labs, Midjourney, and ChatGPT into a seamless creative workflow.",
+  "requestFramePermissions": []
+}
